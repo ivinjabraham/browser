@@ -8,8 +8,9 @@ use glib::{
 use gtk4::{
     Application, CssProvider, EventControllerKey,
     gdk::{self, ModifierType},
-    gio, glib,
-    prelude::WidgetExt,
+    gio::{self, prelude::ApplicationExt as _},
+    glib,
+    prelude::{GtkWindowExt as _, WidgetExt},
 };
 use rand::Rng as _;
 use webkit6::{UserContentManager, UserScript, WebView, prelude::WebViewExt};
@@ -63,6 +64,30 @@ impl Window {
                                             None::<&gio::Cancellable>,
                                             |_| {},
                                         );
+                                    },
+                                    gdk::Key::j => {
+                                        webview.evaluate_javascript(
+                                            "document.scrollingElement.scrollBy({ top: -50, behavior: 'smooth' });
+",
+                                            None,
+                                            None,
+                                            None::<&gio::Cancellable>,
+                                            |_| {},
+                                        );
+                                    },
+                                    gdk::Key::h => {
+                                       if webview.can_go_back() {
+                                           webview.go_back();
+                                       }
+
+                                       return glib::Propagation::Stop;
+                                    },
+                                    gdk::Key::l => {
+                                        if webview.can_go_forward() {
+                                            webview.go_forward();
+                                        }
+
+                                        return glib::Propagation::Stop;
                                     }
                                     _ => {}
                                 }
@@ -71,19 +96,43 @@ impl Window {
                     }
                 }
 
-                if modifier.contains(ModifierType::SHIFT_MASK) && key == gdk::Key::Return {
-                    let mut rng = rand::thread_rng();
-                    let idx = rng.gen_range(0..2);
-                    let arr = ["duckduckgo.com", "archlinux.org"];
-                    println!("{}", format!("{}", arr[idx]));
+                if modifier.contains(ModifierType::SHIFT_MASK) {
+                    if key == gdk::Key::Return {
+                        let mut rng = rand::thread_rng();
+                        let idx = rng.gen_range(0..2);
+                        let arr = ["duckduckgo.com", "archlinux.org"];
+                        println!("{}", format!("{}", arr[idx]));
 
-                    window.new_tab(format!("https://{}", arr[idx]).as_str());
-                    return glib::Propagation::Stop;
+                        window.new_tab(format!("https://{}", arr[idx]).as_str());
+                        return glib::Propagation::Stop;
+                    }
+
+                    if key == gdk::Key::asciitilde {
+                        window.toggle_command_palette();
+                        return glib::Propagation::Stop;
+                    }
+
+                    if key == gdk::Key::d {
+                        window.toggle_dock();
+                        return glib::Propagation::Stop;
+                    }
                 }
 
-                if modifier.contains(ModifierType::SHIFT_MASK) && key == gdk::Key::asciitilde {
-                    window.toggle_command_palette();
-                    return glib::Propagation::Stop;
+                if modifier.contains(ModifierType::CONTROL_MASK) {
+                    if key == gdk::Key::J {
+                        window.cycle_tab(true);
+                        return glib::Propagation::Stop;
+                    }
+
+                    if key == gdk::Key::K {
+                        window.cycle_tab(false);
+                        return glib::Propagation::Stop;
+                    }
+
+                    if key == gdk::Key::W {
+                        window.close_current_tab();
+                        return glib::Propagation::Stop;
+                    }
                 }
 
                 glib::Propagation::Proceed
@@ -99,6 +148,27 @@ impl Window {
         let page = imp.notebook.nth_page(current_page)?;
 
         page.downcast::<WebView>().ok()
+    }
+
+    fn close_current_tab(&self) {
+        let imp = self.imp();
+        let notebook = &imp.notebook;
+
+        if let Some(current_page) = notebook.current_page() {
+            notebook.remove_page(Some(current_page));
+
+            let n_pages = notebook.n_pages();
+            if n_pages == 0 {
+                if let Some(app) = self.application() {
+                    app.quit()
+                } else {
+                    self.close();
+                }
+            }
+
+            self.update_dock_info();
+            return;
+        }
     }
 
     fn toggle_dock(&self) {
@@ -234,5 +304,27 @@ impl Window {
         };
 
         imp.tab_label.set_label(&tab_text);
+    }
+
+    fn cycle_tab(&self, forward: bool) {
+        let imp = self.imp();
+        let notebook = &imp.notebook;
+
+        if let Some(current_page) = notebook.current_page() {
+            let n_pages = notebook.n_pages() as isize;
+            if n_pages == 0 {
+                return;
+            }
+
+            let cur = current_page as isize;
+            let next = if forward {
+                (cur + 1).rem_euclid(n_pages)
+            } else {
+                (cur - 1).rem_euclid(n_pages)
+            };
+
+            notebook.set_current_page(Some(next as u32));
+            self.update_dock_info();
+        }
     }
 }
